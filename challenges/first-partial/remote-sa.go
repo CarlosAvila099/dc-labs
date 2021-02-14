@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"math"
 )
 
 type Point struct {
@@ -45,14 +46,32 @@ func generatePoints(s string) ([]Point, error) {
 
 // getArea gets the area inside from a given shape
 func getArea(points []Point) float64 {
-	// Your code goes here
-	return 0.0
+	sumPos := float64(0)
+	sumNeg := float64(0)
+	for num, point := range points {
+		if num == len(points) - 1{
+			sumPos += point.X * points[0].Y
+			sumNeg += point.Y * points[0].X
+		} else{
+			sumPos += point.X * points[num+1].Y
+			sumNeg += point.Y * points[num+1].X
+		}
+	}
+	area := math.Abs(sumPos - sumNeg) / 2
+	return area
 }
 
 // getPerimeter gets the perimeter from a given array of connected points
 func getPerimeter(points []Point) float64 {
-	// Your code goes here
-	return 0.0
+	perimeter := float64(0)
+	for num, point := range points {
+		if num == len(points) - 1{
+			perimeter += math.Sqrt( math.Pow( (point.X - points[0].X), 2 ) + math.Pow( (point.Y - points[0].Y),2 ))
+		} else{
+			perimeter += math.Sqrt( math.Pow( (point.X - points[num+1].X), 2 ) + math.Pow( (point.Y - points[num+1].Y),2 ))
+		}
+	}
+	return perimeter
 }
 
 // handler handles the web request and reponds it
@@ -81,9 +100,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	// Response construction
 	response := fmt.Sprintf("Welcome to the Remote Shapes Analyzer\n")
 	response += fmt.Sprintf(" - Your figure has : [%v] vertices\n", len(vertices))
-	response += fmt.Sprintf(" - Vertices        : %v\n", vertices)
-	response += fmt.Sprintf(" - Perimeter       : %v\n", perimeter)
-	response += fmt.Sprintf(" - Area            : %v\n", area)
+	if len(vertices) > 2 {
+		response += fmt.Sprintf(" - Vertices        : %v\n", vertices)
+		response += fmt.Sprintf(" - Perimeter       : %v\n", perimeter)
+		response += fmt.Sprintf(" - Area            : %v\n", area)
+	} else {
+		response += fmt.Sprintf("ERROR - Your shape is not compliying with the minimum number of vertices.\n")		
+	}
 
 	// Send response to client
 	fmt.Fprintf(w, response)
