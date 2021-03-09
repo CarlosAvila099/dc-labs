@@ -10,13 +10,15 @@ import (
 func getData(c net.Conn, ch chan string){
 	defer c.Close()
 	buffer := make([]byte, 1024)
-	bytes, err := c.Read(buffer)
-	if err != nil{
-		fmt.Println("Error reading connection:", err.Error())
-		os.Exit(2)
-	}
-	if bytes > 0{
-		ch <- string(buffer[:])
+	for{
+		bytes, err := c.Read(buffer)
+		if err != nil{
+			fmt.Println("Error reading connection:", err.Error())
+			os.Exit(2)
+		}
+		if bytes > 0{
+			ch <- string(buffer[:])
+		}
 	}
 }
 
@@ -35,8 +37,10 @@ func main() {
 		}
 		go getData(conn, channel)
 	}
-	for line := range channel{
-		fmt.Printf("\r%v", line)
+	for{
+		for line := range channel{
+			fmt.Printf("\r%v", line)
+		}
 	}
 	close(channel)
 }
