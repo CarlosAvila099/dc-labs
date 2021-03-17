@@ -65,7 +65,11 @@ func transformData(name string) BucketData{
 		bucketName = name
 		directoryName = ""
 	}
-	bucket := BucketData{bucketName, directoryName, -1, -1, make(map[string]int)}
+	bucket := BucketData{bucketName, directoryName, 0, 0, make(map[string]int)}
+	if directoryName != ""{
+		bucket.DirectoriesCount -= 1
+		bucket.ObjectsCount -= 1
+	}
 	visited := make(map[string]int)
 	url := "http://s3.amazonaws.com/" + bucketName
 	data, err := http.Get(url)
@@ -91,6 +95,7 @@ func transformData(name string) BucketData{
 				if directoryName == ""{
 					extension := filepath.Ext(token.Data)
 					if len(extension) > 0 {
+						bucket.ObjectsCount += 1
 						extension = extension[1:]
 						if _, ext := bucket.Extensions[extension]; ext {
 							bucket.Extensions[extension] += 1
@@ -100,7 +105,6 @@ func transformData(name string) BucketData{
 					}
 					directory := filepath.Dir(token.Data)
 					if len(directory) > 1 && directory != ".." {
-						bucket.ObjectsCount += 1
 						if _,in := visited[directory]; !in{
 							visited[directory] = 1
 							bucket.DirectoriesCount += 1
