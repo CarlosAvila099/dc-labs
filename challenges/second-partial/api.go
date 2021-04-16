@@ -1,0 +1,262 @@
+package main
+
+import(
+	"net/http"
+	"time"
+
+	"github.com/dgrijalva/jwt-go"
+)
+
+/*
+ * Represents a session, with information needed to operate
+**/
+type Session struct{
+	User string
+	Token string
+}
+
+/*
+ * Handles the errors given by different functions of the code
+ * @param c refers to the error code defined
+ * @param e refers to the error given, can be nil
+ * @param w refers to the writer used to connect with the client
+**/
+func errorHandler(c int, e error, w http.ResponseWriter){
+	switch c{
+		case 1:
+			message := "\nThere was an error while getting the token:" + e.Error() + "\n"
+			w.Write([]byte(message))
+			break
+		case 2:
+			message := "\nThere was a problem while revoking the token, please try again\n"
+			w.Write([]byte(message))
+			break
+		case 3:
+			message := `
+{
+	"message": "Please enter a username and password"
+}
+`
+			w.Write([]byte(message))
+			break;
+		case 4:
+			message := `
+{
+	"message": "Invalid username or password"
+}
+`
+			w.Write([]byte(message))
+			break
+		case 5:	
+			message := `
+{
+	"message": "Please enter a token"
+}
+`
+			w.Write([]byte(message))
+			break
+		case 5:	
+			message := `
+{
+	"message": "Invalid token"
+}
+`
+			w.Write([]byte(message))
+			break
+	}
+}
+
+/*
+ * Checks if username and password exist
+ * @param u refers to the username
+ * @param p refers to the password
+ * @return bool that checks if the username and password are correct
+**/
+func isAuthorised(u string, p string) bool{
+	authorization := map[string]string{
+		"username": "password",
+		"root": "",
+	}
+	if pass, ok := authorization[u]; ok{
+		return p == pass
+	}
+	return false
+}
+
+/*
+ * Creates a token
+ * @param u refers to the username
+ * @return string that refers to the token and an error if necesary, nil otherwise
+ * @see https://learn.vonage.com/blog/2020/03/13/using-jwt-for-authentication-in-a-golang-application-dr/
+**/
+func getToken(u string) (string, error){
+	secretKey := "MOOTCKTPOXOOTCK"
+	atClaims := jwt.MapClaims{}
+	atClaims["authorized"] = true
+	atClaims["user_id"] = u
+	atClaims["exp"] = time.Now()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
+	signedToken, err := token.SignedString([]byte(secretKey))
+	if err != nil{
+		return "", err
+	}
+	return signedToken, nil
+}
+
+/*
+ * Checks if session is already started
+ * @param t refers to the token
+ * @return Session related to the token given and bool to check if session is started
+**/
+func inSession(t string) (Session, bool){
+	for _, s := range sessionManager{
+		if t == s.Token{
+			return s, true
+		}
+	}
+	return Session{"", ""}, false
+}
+
+/* Removes an item from an array
+ * @param s refers to array that will have an item removed
+ * @param i refers to the position of the item to be removed
+ * @return array with the item removed
+**/
+func remove(s []Session, i int) []Session {
+    s[len(s)-1], s[i] = s[i], s[len(s)-1]
+    return s[:len(s)-1]
+}
+
+/*
+ * Revokes token, ends active session 
+ * @param t refers to token to be removed
+ * @return bool to check if session has ended
+**/
+func revokeToken(t string) bool{
+	for n, s := range sessionManager{
+		if t == s.Token{
+			sessionManager = remove(sessionManager, n)
+			break
+		}
+	}
+	for _, s := range sessionManager{
+		if t == s.Token{
+			return false
+		}
+	}
+	return true
+}
+
+/*
+ * Starts session
+ * @param w refers to the writer connected to the client
+ * @param r refers to the requests made
+ * @see https://blog.umesh.wtf/how-to-implement-http-basic-auth-in-gogolang
+**/
+func login(w http.ResponseWriter, r *http.Request){
+	w.Header().Add("Content-type", "application/json")
+	username, password, ok := r.BasicAuth()
+    if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(3, nil, w)
+        return
+    }
+	
+	if !isAuthorised(username, password) {
+		w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(4, nil, w)
+		return
+	}
+	
+    w.WriteHeader(http.StatusOK)
+	token, err := getToken(username)
+	if err != nil{
+		errorHandler(1, err, w)
+		return
+	}
+	message := `
+{
+	"message": "Hi ` + username + ` welcome to the DPIP System"
+	"token": "` + token + `"
+}
+`
+    w.Write([]byte(message))
+	sessionManager = append(sessionManager, Session{username, token})
+    return
+}
+
+/*
+ * Ends session
+ * @param w refers to the writer connected to the client
+ * @param r refers to the requests made
+ * @see https://golang.org/pkg/net/http/#Header.Get
+**/
+func logout(w http.ResponseWriter, r *http.Request){
+	token := r.Header.Get("Authorization")
+	if token == ""{
+		w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(5, nil, w)
+        return
+	}
+	token = token[7:]
+	session, started := inSession(token)
+	if !started{
+        w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(6, nil, w)
+        return
+	}
+	revoked := revokeToken(token)
+	if !revoked{
+		errorHandler(2, nil, w)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	message := `
+{
+	"message": "Bye ` + session.User + `, your token has been revoked"
+}
+`
+	w.Write([]byte(message))
+	return
+}
+
+/*
+ * Gives session status
+ * @param w refers to the writer connected to the client
+ * @param r refers to the requests made
+ * @see https://golang.org/pkg/net/http/#Header.Get
+**/
+func status(w http.ResponseWriter, r *http.Request){
+	token := r.Header.Get("Authorization")
+	if token == ""{
+		w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(5, nil, w)
+        return
+	}
+	token = token[7:]
+	session, started := inSession(token)
+	if !started{
+        w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(6, nil, w)
+        return
+	}
+	w.WriteHeader(http.StatusOK)
+	t := time.Now()
+	message := `
+{
+	"message": "Hi ` + session.User + `, the DPIP System is Up and Running "
+	"time": "` + t.Format("2006-01-02 15:04:05") + `"
+}
+`
+    w.Write([]byte(message))
+    return
+}
+
+var sessionManager []Session // Manages all started sessions
+
+func main() {
+	http.HandleFunc("/login", login)
+	http.HandleFunc("/logout", logout)
+	http.HandleFunc("/status", status)
+	http.ListenAndServe("localhost:8080", nil)
+}
