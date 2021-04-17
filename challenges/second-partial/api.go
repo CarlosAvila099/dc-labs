@@ -3,7 +3,7 @@ package main
 import(
 	"net/http"
 	"time"
-
+	"strconv"
 	"github.com/dgrijalva/jwt-go"
 )
 
@@ -24,11 +24,20 @@ type Session struct{
 func errorHandler(c int, e error, w http.ResponseWriter){
 	switch c{
 		case 1:
-			message := "\nThere was an error while getting the token:" + e.Error() + "\n"
+			message := `
+{
+	"message": "There was an error while getting the token"
+	"error": "` + e.Error() + `"
+}
+`
 			w.Write([]byte(message))
 			break
 		case 2:
-			message := "\nThere was a problem while revoking the token, please try again\n"
+			message := `
+{
+	"message": "There was a problem while revoking the token, please try again"
+}
+`
 			w.Write([]byte(message))
 			break
 		case 3:
@@ -55,10 +64,27 @@ func errorHandler(c int, e error, w http.ResponseWriter){
 `
 			w.Write([]byte(message))
 			break
-		case 5:	
+		case 6:	
 			message := `
 {
 	"message": "Invalid token"
+}
+`
+			w.Write([]byte(message))
+			break
+		case 7:
+			message := `
+{
+	"message": "There was an error uploading the image"
+	"error": "` + e.Error() +  `"
+}
+`
+			w.Write([]byte(message))
+			break
+		case 8:
+			message := `
+{
+	"message": "The image surpasses the limit of 10mb"
 }
 `
 			w.Write([]byte(message))
@@ -148,6 +174,25 @@ func revokeToken(t string) bool{
 }
 
 /*
+ * Converts the bytes received to kb, mg depending on the occassion
+ * @param size refers to the bytes received
+ * @return string that has the size in its converted form, bool that refers if the size is in the limit defined
+**/
+func getSize(size int64) (string, bool){
+	var KB, MB, LIMIT float64 = 1024, 1048576, 10485760
+	fSize := float64(size)
+	if fSize < KB{
+		return strconv.FormatFloat(fSize, 'f', 2, 64) + "b", true
+	} else if fSize >= KB && fSize < MB{
+		return strconv.FormatFloat(fSize/KB, 'f', 2, 64) + "kb", true
+	} else if fSize >= MB && fSize <= LIMIT{
+		return strconv.FormatFloat(fSize/MB, 'f', 2, 64) + "mb", true
+	} else{
+		return "", false
+	}
+}
+
+/*
  * Starts session
  * @param w refers to the writer connected to the client
  * @param r refers to the requests made
@@ -177,7 +222,7 @@ func login(w http.ResponseWriter, r *http.Request){
 	message := `
 {
 	"message": "Hi ` + username + ` welcome to the DPIP System"
-	"token": "` + token + `"
+	"token" ` + token + `"
 }
 `
     w.Write([]byte(message))
@@ -193,7 +238,7 @@ func login(w http.ResponseWriter, r *http.Request){
 **/
 func logout(w http.ResponseWriter, r *http.Request){
 	token := r.Header.Get("Authorization")
-	if token == ""{
+	if len(token) < 7{
 		w.WriteHeader(http.StatusUnauthorized)
 		errorHandler(5, nil, w)
         return
@@ -221,6 +266,51 @@ func logout(w http.ResponseWriter, r *http.Request){
 }
 
 /*
+ * Uploads an image to the server
+ * @param w refers to the writer connected to the client
+ * @param r refers to the requests made
+ * @see https://golang.org/pkg/net/http/#Request.FormFile
+ * @see https://golang.org/pkg/mime/multipart/#FileHeader
+**/
+func upload(w http.ResponseWriter, r *http.Request){
+	token := r.Header.Get("Authorization")
+	if len(token) < 7{
+		w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(5, nil, w)
+        return
+	}
+	token = token[7:]
+	_, started := inSession(token)
+	if !started{
+        w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(6, nil, w)
+        return
+	}
+	w.WriteHeader(http.StatusOK)
+	r.ParseMultipartForm(10 << 20)
+	_, header, err  := r.FormFile("data")
+	if err != nil{
+		w.WriteHeader(http.StatusUnauthorized)
+		errorHandler(7, err, w)
+		return
+	}
+	size, ok := getSize(header.Size)
+	if !ok{
+		errorHandler(8, nil, w)
+		return
+	}
+	message := `
+{
+	"message": "An image has been successfully uploaded"
+	"filename": "` + header.Filename + `"
+	"size": "` + size + `"
+}
+`
+    w.Write([]byte(message))
+	return 
+}
+
+/*
  * Gives session status
  * @param w refers to the writer connected to the client
  * @param r refers to the requests made
@@ -228,7 +318,7 @@ func logout(w http.ResponseWriter, r *http.Request){
 **/
 func status(w http.ResponseWriter, r *http.Request){
 	token := r.Header.Get("Authorization")
-	if token == ""{
+	if len(token) < 7{
 		w.WriteHeader(http.StatusUnauthorized)
 		errorHandler(5, nil, w)
         return
@@ -257,6 +347,7 @@ var sessionManager []Session // Manages all started sessions
 func main() {
 	http.HandleFunc("/login", login)
 	http.HandleFunc("/logout", logout)
+	http.HandleFunc("/upload", upload)
 	http.HandleFunc("/status", status)
 	http.ListenAndServe("localhost:8080", nil)
 }
