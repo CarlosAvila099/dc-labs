@@ -95,5 +95,3 @@ If the token exists it will the display the user name and the current time.
 	"time": "2015-03-07 11:06:39"
 }
 ```
-message.txt
-3 KB
