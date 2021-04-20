@@ -222,7 +222,7 @@ func login(w http.ResponseWriter, r *http.Request){
 	message := `
 {
 	"message": "Hi ` + username + ` welcome to the DPIP System"
-	"token" ` + token + `"
+	"token" "` + token + `"
 }
 `
     w.Write([]byte(message))
